@@ -1,34 +1,40 @@
-from fastapi import HTTPException, status, Depends
+from fastapi import HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from .models import TokenResponse
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
 
 
-fake_users_db = {
-    "abhinay": {
-        "username": "abhinay",
-        "password": "sai123",
-        "token": "fake-jwt-token-for-abhinay"
-    }
+SECRET_KEY = "your-secret-key"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+
+dummy_user = {
+    "username": "admin",
+    "password": "a123"
 }
+
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-def authenticate_user(form_data: OAuth2PasswordRequestForm = Depends()) -> TokenResponse:
-    user = fake_users_db.get(form_data.username)
-    if not user or form_data.password != user["password"]:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return TokenResponse(access_token=user["token"], token_type="bearer")
 
-def verify_token(token: str = Depends(oauth2_scheme)) -> dict:
-    user = next((u for u in fake_users_db.values() if u["token"] == token), None)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return user
+def authenticate_user(form_data: OAuth2PasswordRequestForm = Depends()):
+    if form_data.username != dummy_user["username"] or form_data.password != dummy_user["password"]:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode = {"sub": form_data.username, "exp": expire}
+    token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+    return {"access_token": token, "token_type": "bearer"}
+
+
+def verify_token(token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        if username is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+        return username
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
